@@ -7,16 +7,17 @@ import std.conv : to;
 import std.array : replace;
 import core.stdc.wchar_ : wcslen;
 import core.thread : Thread, msecs;
+import std.algorithm : canFind;
 
 void setConsoleToUTF8() {
     SetConsoleOutputCP(65001); // UTF-8代码页
 }
 
-void replaceInClipboard(string findStr, string replaceStr) {
+bool replaceInClipboard(string findStr, string replaceStr) {
     // 打开剪贴板
     if (OpenClipboard(null) == 0) {
         writeln("无法打开剪贴板");
-        return;
+        return false;
     }
     scope(exit) CloseClipboard();
 
@@ -24,20 +25,21 @@ void replaceInClipboard(string findStr, string replaceStr) {
     HANDLE hData = GetClipboardData(CF_UNICODETEXT);
     if (hData == null) {
         writeln("剪贴板中没有文本数据或获取失败");
-        return;
+        return false;
     }
 
     // 锁定全局内存并获取文本指针
     wchar* pszText = cast(wchar*)GlobalLock(hData);
     if (pszText == null) {
         writeln("无法锁定全局内存");
-        return;
+        return false;
     }
     scope(exit) GlobalUnlock(hData);
 
     // 转换为D字符串并替换内容
     wstring clipboardText = pszText[0 .. wcslen(pszText)].idup;
     string text = to!string(clipboardText);
+    bool findit = text.canFind(findStr);
     string newText = text.replace(findStr, replaceStr);
 
     // 分配新的全局内存
@@ -45,7 +47,7 @@ void replaceInClipboard(string findStr, string replaceStr) {
     HGLOBAL hNewData = GlobalAlloc(GMEM_MOVEABLE, (newWText.length + 1) * wchar.sizeof);
     if (hNewData == null) {
         writeln("内存分配失败");
-        return;
+        return false;
     }
 
     // 复制数据到新内存
@@ -53,7 +55,7 @@ void replaceInClipboard(string findStr, string replaceStr) {
     if (pNewData == null) {
         GlobalFree(hNewData);
         writeln("无法锁定新内存");
-        return;
+        return false;
     }
     pNewData[0 .. newWText.length] = newWText[];
     pNewData[newWText.length] = '\0';
@@ -65,14 +67,17 @@ void replaceInClipboard(string findStr, string replaceStr) {
         GlobalFree(hNewData);
         writeln("设置剪贴板数据失败");
     }
+    return findit;
 }
 
 void main() {
     setConsoleToUTF8();
     // 示例：替换所有"old"为"new"
     while (true){
-        replaceInClipboard("preview", "index");
-        writeln("剪贴板内容已更新");
+        if (replaceInClipboard("preview", "index")){
+            writeln("替换成功");
+        }
+        
         Thread.sleep(500.msecs);
     }
 }
